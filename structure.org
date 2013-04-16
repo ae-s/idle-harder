@@ -1,0 +1,8 @@
+* Applications
+** irc_c
+   irc client application, one per server connection
+   includes logger
+** irc_mmi_wx
+   man-machine interface, wxwidgets
+** irc_mmi_term
+   man-machine interface, terminal

@@ -1,6 +1,6 @@
 -module(ircd_conn).
 -behaviour(gen_server).
--author("Duncan Smith <Duncan@xrtc.net>").
+-author("Duncan Smith <Duncan/@xrtc.net>").
 
 % fast stop
 -export([start/2]).
@@ -15,6 +15,9 @@
 -export([upgrade/0, upgrade/1]).
 
 -compile(export_all).
+
+
+% start-stop
 
 start(Host, Port) -> gen_server:start_link({local, ?MODULE}, ?MODULE, [{host, Host}, {port, Port}], []).
 
@@ -34,12 +37,20 @@ init(Opts) ->
     Host = dict:fetch(host, Dict),
     Port = dict:fetch(port, Dict),
     io:format("connecting to ~p : ~p ( ~w )~n", [Host, Port, Opts]),
-    {ok, Sock} = gen_tcp:connect(Host, Port, [], 2000),
+    {ok, Sock} = gen_tcp:connect(Host, Port, [{packet, line}], 2000),
     State = dict:store(socket, Sock, Dict),
-    send(self(), "NICK foo"),
+    send(self(), "NICK idle-harder"),
     send(self(), "USER bar 0 * :test erlang"),
     % wait to connect
     {ok, State, 3000}.
+
+upgrade() ->
+    ircd_conn:upgrade(ok).
+upgrade(ok) ->
+    ok.
+
+
+% ipc
 
 % socket error conditions
 handle_info(timeout, _State) ->
@@ -50,7 +61,7 @@ handle_info({tcp_closed, _Socket}, _State) ->
     {stop, tcp_closed, tcp_kill};
 
 % incoming irc messages
-handle_info({tcp, Socket, Data}, State) ->
+handle_info({tcp, _Socket, Data}, State) ->
     lists:map(fun(Msg) -> recv(self(), Msg) end, split_messages(Data)),
     {noreply, State}.
 
@@ -62,11 +73,6 @@ split_messages(Msg, Sofar) when is_list(Msg) ->
 	0 -> Sofar;
 	_ -> split_messages(string:substr(Msg, End+2), [string:substr(Msg, 1, End-1) | Sofar])
     end.
-
-upgrade() ->
-    ircd_conn:upgrade(ok).
-upgrade(ok) ->
-    ok.
 
 % from external processes
 send(Srv, Msg) -> gen_server:cast(Srv, {send, Msg}).
@@ -89,37 +95,43 @@ handle_cast({recv, ":sodium.u " ++ "PONG " ++ Token}, State) ->
     io:format("Got pong for ~p~n", [Token]),
     {noreply, State};
 handle_cast({recv, Msg}, State) ->
-    io:format("Unhandled message: ~p~n", [Msg]),
+    MP = parse_line(Msg),
+    io:format("Unhandled message: ~p~n", [MP]),
     {noreply, State}.
 
+
+% msg-parse
 
+% "^\(?::\([^ ]+\) \)?\([-_a-zA-Z0-9]+\) \([^ 
+% ]*\) ?\(\(?>[^:][^ 
+% ]* \)*\)\(?: :\(.*\)\)?$"
+
+% basic format:
+%   :from cmd to args :text
+% here's what's optional:
+%   [:from] cmd to [args] [:text]
+%
+% from: :(.*?) 
 
 % parse incoming irc messages into some kind of match-able packet
 parse_line(Msg) ->
-    % peel message source off, if present
-    case Msg of ([$: | _]) ->
-	    From = tl(string:sub_word(Msg, 1)),
-	    Cmd_tail = lists:nthtail(length(From) + 2, Msg),
-	    Cmd = string:sub_word(Cmd_tail, 1),
-	    Args = lists:nthtail(length(Cmd) + 1, Cmd_tail);
-	_ ->
-	    From = nil,
-	    Cmd = string:sub_word(Msg, 1),
-	    Args = lists:nthtail(length(Cmd) + 1, Msg)
-    end,
-
+    % TODO: consider compiling and caching this, as it may become
+    % expensive to recompile for every inbound line.
+    {match, [From, Cmd, To, Args, Text]} = re:run(Msg, "^(:(?<from>[^ ]*) |)(?<cmd>[A-Za-z]+|[0-9]+)(?<args>( [^:][^ ]*)+?)?( :(?<tail>.*))?$", [no_auto_capture, {capture, [from, cmd, args, text], list} ]),
     parse_cmd(Cmd, From, Args).
 
-% Accept a partially-parsed message from parse_line/1, and transform
-% into a tuple of appropriate size and contents.  Tuples are not all
-% the same size.
+
+% Accept a parsed message from parse_line/1, and transform into a
+% tuple of appropriate size and contents.  Tuples are not all the same
+% size.
 parse_cmd("PING", From, Args) ->
-    {ping, From, Args};
+    {From, self, ping, Args};
 parse_cmd("PONG", From, Args) ->
-    {pong, From, Args};
+    {From, self, pong, Args};
 % rfc 2812, sec 3.1.2
 parse_cmd("NICK", From, Args) ->
-    {nick, From, Args};
+    % TODO parse this properly
+    {From, unknown, nick, Args};
 % rfc 2812, sec 3.1.5 - user mode
 % rfc 2812, sec 3.2.3 - channel mode
 parse_cmd("MODE", From, Args) ->
@@ -131,18 +143,52 @@ parse_cmd("MODE", From, Args) ->
 	user -> % user mode has changed, not associated with a channel (MOST LIKELY the current user)
 	    {From, Target, mode_change, parse_user_modes(Delta, ArgTail)}
     end;
-% RPL_ISUPPORT 
-%
-% :sodium.u 005 foo CASEMAPPING=ascii WATCH=128 SILENCE=10 ELIST=cmntu EXCEPTS INVEX CHANMODES=beI,k,jl,cimMnOprRst MAXLIST=b:100,e:45,I:45 TARGMAX=DCCALLOW:,JOIN:,KICK:4,KILL:20,NOTICE:20,PART:,PRIVMSG:20,WHOIS:,WHOWAS: :are available on this server
-% :sodium.u 005 foo NETWORK=rogueUW SAFELIST MAXBANS=100 MAXCHANNELS=10 CHANNELLEN=32 KICKLEN=307 NICKLEN=30 TOPICLEN=307 MODES=6 CHANTYPES=# CHANLIMIT=#:10 PREFIX=(ov)@+ STATUSMSG=@+ :are available on this server
-parse_cmd("005", From, Args) ->
-    [_To | Items] = string:tokens(Args, " "),
-    parse_005(Items);
-
 parse_cmd("PRIVMSG", From, Args) ->
     Routing = string:substr(Args, 1, string:str(Args, " :")),
     [To, [$: | Message]] = string:tokens(Routing, " "),
-    ok.
+    {From, parse_multi_targets(To), privmsg, Message};
+
+% RPL_WELCOME
+% TODO
+parse_cmd("001", From, Args) ->
+    {From, unknown, rpl_welcome, Args};
+
+% RPL_YOURHOST
+% TODO
+parse_cmd("002", From, Args) ->
+    {From, unknown, rpl_yourhost, Args};
+
+% RPL_CREATED
+% TODO
+parse_cmd("003", From, Args) ->
+    {From, unknown, rpl_created, Args};
+
+% RPL_MYINFO
+% TODO
+parse_cmd("004", From, Args) ->
+    {From, unknown, rpl_myinfo, Args};
+
+% RPL_ISUPPORT
+parse_cmd("005", From, Args) ->
+    [To | Items] = string:tokens(Args, " "),
+    {From, To, rpl_isupport, parse_005(Items)};
+
+% RPL_USERHOST
+% TODO
+parse_cmd("302", From, Args) ->
+    {From, unknown, rpl_userhost, Args};
+
+% RPL_ISON
+% TODO
+parse_cmd("303", From, Args) ->
+    {From, unknown, rpl_ison, Args};
+
+% RPL_AWAY
+parse_cmd("301", From, Args) ->
+    {From, unknown, rpl_away, Args};
+
+parse_cmd(Type, From, Args) ->
+    {From, unknown, Type, Args}.
 
 
 
@@ -447,7 +493,37 @@ parse_multi_targets(Targs) ->
 %
 % XXX TODO
 route_incoming({_From, _To, _Type, _Args}) ->
+    io:format("Got stuff ~p~n", [{_From, _To, _Type, _Args}]),
     ok.
+
+% some design thoughts
+%
+% For this to be a library, it should provide just a few endpoints, or
+% perhaps a callback-oriented interface.
+%
+% I'm not sure what proper form for an API to an outside service is in
+% Erlang.  There needs to be a clean break between comms library and
+% IRC client, though.
+%
+% Comms library parses and formats messages, but maintains no state
+% other than keeping the connection up (i.e., PONG).  Comms library
+% should have timestamping.  The ircd mirror process is first
+% destination of all inbound messages.  It should maintain all
+% necessary state, and perform message routing.
+%
+% Under this organization, every server mirror process has a captive
+% ircd_conn.  Ought they share a supervisor?
+%
+% Should inbound channel messages be sent to a channel mirror for
+% processing?  That sounds like the cleanest approach.  The channel
+% mirror maintains all the history for that channel.
+%
+% Channel (and user) mirrors dribble their events to the logging
+% system, and query it as-needed for backing store.
+%
+% Talking to the channel and user mirrors we have the various clients.
+
+
 
 
 % {server,

@@ -1,0 +1,26 @@
+line structures:
+cmd text
+from cmd to args
+from cmd to text
+from cmd to args text
+
+from := (?::)([^ ]*)
+cmd := ([A-Za-z]*|[0-9]{3})
+params := 
+
+basically,
+(?: cmd | from cmd ) params?
+
+perl regex
+^(?:(?<cmd>[A-Za-z]*|[0-9]{3})|(?::)(?<from>[^ ]+) (?<cmd>[A-Za-z]*|[0-9]{3}))(?<args> .*)(?: :(?<trailing>.*))?$
+
+emacs regex
+noupe
+^\(?:\([A-Za-z]+|[0-9]+\)\|\(?::\)\([^ ]+\) \([A-Za-z]+\|[0-9]+\)\)\( .*\)\(?: :\(.*\)\)?$
+^\(?::\([^ ]*\) \|\)\([A-Za-z]+\|[0-9]+\)\(\(?:[^ ]* \)+?\)?\(?::\(.*\)\)$
+
+GOT IT MOTHERFUCKERS
+^\(?::\([^ ]*\) \|\)\([A-Za-z]+\|[0-9]+\)\(\(?: [^:][^ ]*\)+?\)?\(?: :\(.*\)\)?$
+
+now in pcre, with named captures:
+^(?::(?<from>\S*) |)(?<cmd>[A-Za-z]+|[0-9]+)(?<args>(?: [^:]\S*)+?)?(?: :(?<tail>.*))?$

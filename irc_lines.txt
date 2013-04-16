@@ -1,0 +1,19 @@
+PING :seattlewireless.net
+:seattlewireless.net 353 idle-harder = #idle-harder :idle-harder @chronomex 
+:idle-harder!~bar@173-160-235-41-Washington.hfc.comcastbusiness.net JOIN :#idle-harder
+:seattlewireless.net 303 idle-harder :chronomex 
+:seattlewireless.net 265 idle-harder :Current Local Users: 49  Max: 62
+:seattlewireless.net 317 idle-harder chronomex 2924 1349953126 :seconds idle, signon time
+:seattlewireless.net 319 idle-harder chronomex :@#swn @#rainiertel @#idle-harder 
+:chronomex!~chronomex@gir.seattlewireless.net KICK #idle-harder idle-harder :
+:chronomex!~chronomex@gir.seattlewireless.net PRIVMSG idle-harder :hey
+:chronomex!~chronomex@gir.seattlewireless.net PRIVMSG #idle-harder :hey in thing
+
+:seattlewireless.net 001 idle-harder :Welcome to the seattlewireless.net IRC Network idle-harder!~bar@173-160-235-41-Washington.hfc.comcastbusiness.net
+:seattlewireless.net 002 idle-harder :Your host is seattlewireless.net, running version InspIRCd-1.1.19+Cheshire
+:seattlewireless.net 003 idle-harder :This server was created 20:12:57 Feb  8 2009
+:seattlewireless.net 005 idle-harder WALLCHOPS WALLVOICES MODES=19 CHANTYPES=# PREFIX=(ohv)@%+ MAP MAXCHANNELS=20 MAXBANS=60 VBANLIST NICKLEN=31 CASEMAPPING=rfc1459 STATUSMSG=@%+ CHARSET=ascii :are supported by this server
+
+:seattlewireless.net 004 idle-harder seattlewireless.net InspIRCd-1.1.19+Cheshire BQRWinorsw MORabcghiklmnopqrstvz abghkloqv :
+:chronomex!~chronomex@gir.seattlewireless.net MODE #idle-harder -t
+some more text
